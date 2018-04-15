@@ -17,24 +17,20 @@ func main() {
 	hostname := os.Args[1]
 	ports := os.Args[2:]
 
-	localAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	if err != nil {
-		panic(err)
-	}
-
 	for _, port := range ports {
-		log.Println("Knocking on", port)
-		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", hostname, port))
+		address := fmt.Sprintf("%s:%s", hostname, port)
+		log.Println("Knocking on", address)
+		addr, err := net.ResolveUDPAddr("udp", address)
 		if err != nil {
 			panic(err)
 		}
 
-		conn, err := net.DialUDP("udp", localAddr, addr)
+		conn, err := net.DialUDP("udp", nil, addr)
 		if err != nil {
 			panic(err)
 		}
 
-		conn.Write([]byte(""))
+		conn.Write([]byte("ok"))
 
 		conn.Close()
 	}
