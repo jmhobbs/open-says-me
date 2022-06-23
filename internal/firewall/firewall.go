@@ -9,7 +9,7 @@ type Firewall interface {
 	Attach() error
 	Detach() error
 	Block(port int) error
-	Add(host string, port int) error
-	Remove(host string, port int) error
-	List() ([]Exception, error)
+	AddException(host string, port int) error
+	RemoveException(host string, port int) error
+	ListExceptions() ([]Exception, error)
 }

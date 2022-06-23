@@ -1,12 +1,15 @@
+// +build linux
+
 package firewall
 
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os/exec"
 	"strconv"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 type IPTables struct{}
@@ -37,8 +40,6 @@ func (i *IPTables) Attach() error {
 }
 
 func (i *IPTables) Detach() error {
-	log.Println("IPTables.Detach Called")
-
 	// Delete jump to our chain
 	cmd := exec.Command("iptables", "-D", "INPUT", "-j", "open-says-me")
 	err := cmd.Run()
@@ -72,7 +73,7 @@ func (i *IPTables) Block(port int) error {
 	return nil
 }
 
-func (i *IPTables) Add(host string, port int) error {
+func (i *IPTables) AddException(host string, port int) error {
 	// iptables -I open-says-me 1 -p tcp -s <host> --dport <port> -j ACCEPT -m comment --comment <time>
 	cmd := exec.Command("iptables", "-I", "open-says-me", "1", "-p", "tcp", "-s", host, "--dport", strconv.Itoa(port), "-j", "ACCEPT", "-m", "comment", "--comment", time.Now().String())
 	err := cmd.Run()
@@ -82,10 +83,14 @@ func (i *IPTables) Add(host string, port int) error {
 	return nil
 }
 
-func (i *IPTables) Remove(host string, port int) error {
+func (i *IPTables) RemoveException(host string, port int) error {
 	return errors.New("Not Implemented")
 }
 
-func (i *IPTables) List() ([]Exception, error) {
-	return []Exception{}, errors.New("Not Implemented")
+func (i *IPTables) ListExceptions() ([]Exception, error) {
+	return nil, errors.New("Not Implemented")
+}
+
+func New(logger zerolog.Logger) Firewall {
+	return &IPTables{}
 }

@@ -1,55 +1,56 @@
 package main
 
 import (
-	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 
 	"github.com/jmhobbs/open-says-me/internal/firewall"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type Knock struct {
 	Address net.IP
-	Port    string
+	Port    int
 }
 
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Println("usage:", os.Args[0], "<locked port>", "<port>...")
-		return
+	config := getConfig()
+
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if config.Debug {
+			zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 
-	port, err := strconv.Atoi(os.Args[1])
-	if err != nil {
-		log.Fatal(err)
+	if(config.Pretty) {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
-	log.Println("Locking port", port)
 
-	f := firewall.IPTables{}
-	err = f.Attach()
+	log.Info().Int("port", config.Port).Msg("locking")
+
+	f := firewall.New(log.Logger)
+	err := f.Attach()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Send()
 	}
 	defer func() {
 		if err := f.Detach(); err != nil {
-			log.Println(err)
+			log.Error().Err(err).Msg("unable to detach")
 		}
 	}()
 
-	err = f.Block(port)
+	err = f.Block(config.Port)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("unable to lock port")
 	}
 
-	knock_ports := os.Args[2:]
-	log.Println("Knock order:", knock_ports)
+	log.Info().Ints("knock order", config.KnockPorts).Send()
 
 	ch := make(chan Knock)
 
-	for _, knock_port := range knock_ports {
+	for _, knock_port := range config.KnockPorts {
 		go listen(ch, knock_port)
 	}
 
@@ -59,7 +60,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		for _ = range c {
-			log.Println("Shutting down...")
+			log.Info().Msg("shutting down...")
 			// TODO: Cleanly kill UDP listeners
 			close(ch)
 		}
@@ -68,45 +69,31 @@ func main() {
 	connections := map[string]int{}
 
 	for knock := range ch {
-		key := string(knock.Address)
-		current_step := connections[key]
-		if knock_ports[current_step] == knock.Port {
-			connections[key] = current_step + 1
+		address := knock.Address.String()
+		log.Debug().Str("address", address).Int("port", knock.Port).Msg("knock, knock")
+
+		current_step := connections[address]
+		if config.KnockPorts[current_step] == knock.Port {
+			connections[address] = current_step + 1
 		} else {
-			log.Println("bad knock from:", knock.Address.String())
-			delete(connections, key)
+			log.Warn().
+				Str("address", address).
+				Int("expected_port", config.KnockPorts[current_step]).
+				Int("received_port", knock.Port).
+				Int("step", current_step).
+				Msg("bad knock")
+			// todo: re-lock?
+			// todo: temporary ban from knocking?
+			delete(connections, address)
 		}
 
-		if connections[key] >= len(knock_ports) {
-			if err := f.Add(knock.Address.String(), port); err != nil {
-				log.Println("error adding firewall exception:", err)
+		if connections[address] >= len(config.KnockPorts) {
+			if err := f.AddException(knock.Address.String(), config.Port); err != nil {
+				log.Error().Err(err).Msg("error adding firewall exception")
+			} else {
+				log.Info().Str("address", knock.Address.String()).Msg("exception added")
 			}
-			delete(connections, key)
+			delete(connections, address)
 		}
-	}
-}
-
-// Listens on the UDP port for a knock packet
-// and then pushes those knocks up the channel
-func listen(ch chan Knock, port string) {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%s", port))
-	if err != nil {
-		panic(err)
-	}
-
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-
-	buf := make([]byte, 2)
-
-	for {
-		_, raddr, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			log.Println("error: ", err)
-		}
-		ch <- Knock{raddr.IP, port}
 	}
 }
